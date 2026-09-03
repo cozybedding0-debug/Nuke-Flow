@@ -28,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setLoading(false);
       }
+    }).catch(() => {
+      if (mounted) setLoading(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -44,42 +46,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     async function fetchProfile(userId: string, email: string) {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
 
-      if (error) {
-        // Profile might not exist yet — retry after short delay
-        setTimeout(async () => {
-          const { data: retry } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .maybeSingle();
-          if (mounted) {
-            setProfile(retry as Profile | null);
-            setLoading(false);
-          }
-        }, 1000);
-        return;
-      }
-
-      if (mounted) {
-        if (data) {
-          setProfile(data as Profile);
-        } else {
-          // Fallback: create a minimal profile object
-          setProfile({
-            id: userId,
-            email,
-            full_name: '',
-            role: 'manager' as UserRole,
-            created_at: new Date().toISOString(),
-          });
+        if (error) {
+          // Profile might not exist yet — retry after short delay
+          setTimeout(async () => {
+            try {
+              const { data: retry } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .maybeSingle();
+              if (mounted) {
+                setProfile(retry as Profile | null);
+                setLoading(false);
+              }
+            } catch {
+              if (mounted) setLoading(false);
+            }
+          }, 1000);
+          return;
         }
-        setLoading(false);
+
+        if (mounted) {
+          if (data) {
+            setProfile(data as Profile);
+          } else {
+            // Fallback: create a minimal profile object
+            setProfile({
+              id: userId,
+              email,
+              full_name: '',
+              role: 'manager' as UserRole,
+              created_at: new Date().toISOString(),
+            });
+          }
+          setLoading(false);
+        }
+      } catch {
+        if (mounted) setLoading(false);
       }
     }
 
