@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     }).catch(() => {
+      // Supabase not reachable or not configured — show login screen
       if (mounted) setLoading(false);
     });
 
