@@ -54,7 +54,7 @@ export default function Layout({ current, onNavigate, children }: LayoutProps) {
             <Package size={20} />
           </div>
           <div>
-            <p className="font-bold text-slate-900 dark:text-white text-sm">StockFlow</p>
+            <p className="font-bold text-slate-900 dark:text-white text-sm">NukeFlow</p>
             <p className="text-xs text-slate-400">Inventory Manager</p>
           </div>
         </div>
