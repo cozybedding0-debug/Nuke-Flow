@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, FormEvent, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { formatCurrency, formatDate, todayISO, exportToCSV, exportToPDF } from '@/lib/utils';
+import { formatCurrency, formatDate, formatDateShort, todayISO, getDateRange, exportToCSV, exportToPDF } from '@/lib/utils';
 import { CATEGORIES } from '@/types';
-import type { Product, DailyOrder, Category, CustomerOrderGroup, OrderStatus } from '@/types';
+import type { Product, DailyOrder, Category, CustomerOrderGroup, OrderStatus, DateRangePreset } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { subscribeProducts, fetchProducts as storeFetch } from '@/lib/productsStore';
 import {
@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Clock,
   X,
+  Calendar,
 } from 'lucide-react';
 
 interface OrderItemRow {
@@ -86,7 +87,9 @@ export default function Orders() {
 
   // List state
   const [search, setSearch] = useState('');
-  const [orderDateFilter, setOrderDateFilter] = useState(todayISO());
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>('today');
+  const [customStart, setCustomStart] = useState(todayISO());
+  const [customEnd, setCustomEnd] = useState(todayISO());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<{ group: CustomerOrderGroup; item?: DailyOrder } | null>(null);
   const [statusUpdateId, setStatusUpdateId] = useState<string | null>(null);
@@ -141,16 +144,39 @@ export default function Orders() {
     return Array.from(groups.values());
   }, [orders]);
 
+  const dateRange = useMemo(() => {
+    if (rangePreset === 'custom') {
+      return { start: customStart, end: customEnd };
+    }
+    return getDateRange(rangePreset);
+  }, [rangePreset, customStart, customEnd]);
+
+  const rangeLabel = useMemo(() => {
+    if (rangePreset === 'custom') {
+      if (!customStart || !customEnd) return 'Custom Range';
+      if (customStart === customEnd) return formatDate(customStart);
+      return `${formatDateShort(customStart)} – ${formatDateShort(customEnd)}`;
+    }
+    const labels: Record<DateRangePreset, string> = {
+      today: 'Today',
+      yesterday: 'Yesterday',
+      this_week: 'This Week',
+      this_month: 'This Month',
+      custom: '',
+    };
+    return labels[rangePreset];
+  }, [rangePreset, customStart, customEnd]);
+
   // Filter groups by date and search
   const filteredGroups = useMemo(() => {
     return customerGroups.filter((g) => {
-      const matchesDate = g.order_date === orderDateFilter;
+      const matchesDate = g.order_date >= dateRange.start && g.order_date <= dateRange.end;
       const matchesSearch =
         g.customer_name.toLowerCase().includes(search.toLowerCase()) ||
         g.items.some((i) => i.product_name.toLowerCase().includes(search.toLowerCase()));
       return matchesDate && matchesSearch;
     });
-  }, [customerGroups, orderDateFilter, search]);
+  }, [customerGroups, dateRange, search]);
 
   const dayRevenue = useMemo(
     () => filteredGroups.reduce((sum, g) => sum + g.grand_total, 0),
@@ -379,7 +405,7 @@ export default function Orders() {
         ]);
       });
     });
-    exportToCSV(`orders-${orderDateFilter}.csv`, headers, rowsData);
+    exportToCSV(`orders-${dateRange.start}_to_${dateRange.end}.csv`, headers, rowsData);
   }
 
   function handleExportPDF() {
@@ -398,7 +424,7 @@ export default function Orders() {
         ]);
       });
     });
-    exportToPDF(`Order Log — ${formatDate(orderDateFilter)}`, headers, rowsData);
+    exportToPDF(`Order Log — ${rangeLabel}`, headers, rowsData);
   }
 
   if (loading && orders.length === 0 && products.length === 0) {
@@ -640,12 +666,6 @@ export default function Orders() {
                   className="input-field pl-10 py-2"
                 />
               </div>
-              <input
-                type="date"
-                value={orderDateFilter}
-                onChange={(e) => setOrderDateFilter(e.target.value)}
-                className="input-field py-2 w-auto"
-              />
             </div>
             <div className="flex items-center gap-2">
               <button onClick={handleExportCSV} className="btn-secondary" disabled={filteredGroups.length === 0}>
@@ -657,6 +677,42 @@ export default function Orders() {
                 PDF
               </button>
             </div>
+          </div>
+
+          {/* Date Range Filter */}
+          <div className="flex items-center gap-2 flex-wrap mt-3">
+            <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-medium mr-1">
+              <Calendar size={16} />
+              Date:
+            </div>
+            {(['today', 'yesterday', 'this_week', 'this_month', 'custom'] as DateRangePreset[]).map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setRangePreset(preset)}
+                className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${
+                  rangePreset === preset ? 'tab-active' : 'tab-inactive'
+                }`}
+              >
+                {preset.replace('_', ' ')}
+              </button>
+            ))}
+            {rangePreset === 'custom' && (
+              <div className="flex items-center gap-2 ml-2">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="input-field py-1.5 text-xs w-auto"
+                />
+                <span className="text-slate-400 text-sm">to</span>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="input-field py-1.5 text-xs w-auto"
+                />
+              </div>
+            )}
           </div>
 
           {/* Mini stats */}
@@ -674,7 +730,7 @@ export default function Orders() {
               </span>
             </div>
             <span className="text-sm text-slate-400">
-              {filteredGroups.length} customer order(s) on {formatDate(orderDateFilter)}
+              {filteredGroups.length} customer order(s) — {rangeLabel}
             </span>
           </div>
         </div>
